@@ -127,3 +127,5 @@ y_hat.svm = predict(model_svm, test[2:126])
 #y_hat.svm_ = y_hat.svm*(max(data2$y)-min(data2$y))+min(data2$y)
 rmse.svm = rmse(y_hat.svm - test[,1])
 rmse.svm
+
+#
