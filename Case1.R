@@ -71,12 +71,12 @@ normalize = function(x) {
 }
 scaled2 = data.frame(y=data2[,1], scale(data2[,2:126]))
 
-# Split scaled data into train and test (50/50)
+# Split scaled data into train and test (80/20)
 n=dim(scaled2)[1]
 set.seed(12345)
 id=sample(1:n, floor(n*0.8))
-train_=scaled2[id,]
-test_=scaled2[-id,]
+train_=scaled[id,]
+test_=scaled[-id,]
 
 # Split unscaled data into train and test (80/20)
 n=dim(data2)[1]
@@ -96,16 +96,24 @@ plot(prc)
 summary(prc)
 print(prc)
 
+# Apply BH test to parameters
+pvals = sapply(2:126, function(i)
+  t.test(data2[,i]~data2$y, alternative="two.sided")$p.value)
+names(pvals)<-colnames(data2[,-1])
+# pvals[which(pvals<=0.05)]
+sorted_pvals<-sort(pvals,decreasing =FALSE)
+# L=sapply(1:4702, function(i) max(pvals[i],0.05*(i/4702)))
+adjusted<-p.adjust(pvals,method="BH")
+print(data.frame(features=names(pvals)[which(adjusted<0.05)]))
+
 # fit a elastic net regression model
 model_cvelastic1 = cv.glmnet(y=as.matrix(train[,1]), x=as.matrix(train[,-1]), scale=TRUE, alpha=0.2) # alpha=0 gives ridge regression
 plot(model_cvelastic1) # Check to make sure cross-validation looks ok
 s = summary(model_cvelastic1)
 model_elastic1 = glmnet(y=as.matrix(train[,1]), x=as.matrix(train[,2:126]), lambda=0.05)
 
-y_hat = predict(model_cvglm1, newx=as.matrix(test_[,2:126]), s=model_cvelastic1$lambda.1se) # lambda.1se = leave one out method
-y_hat_ = y_hat*(max(data2$y)-min(data2$y))+min(data2$y)
-test.r = (test_$y)*(max(data2$y)-min(data2$y))+min(data2$y)
-rmse.glm0 = rmse(y_hat_ - test.r)
+y_hat = predict(model_cvelastic1, newx=as.matrix(test[,2:126]), s=model_cvelastic1$lambda.1se) # lambda.1se = leave one out method
+rmse.glm0 = rmse(y_hat - test$y)
 rmse.glm0
 
 plot(test$y, y_hat,col='red',main='Real vs predicted elastic', pch=18, cex=0.7)
@@ -141,8 +149,8 @@ for (i in 3:p){
 
 # fit lm regression model
 model_lm = lm(y~., data=train)
-y_hatlm = predict(model_lm, newdata=test_)
-rmse.lm = rmse(y_hatlm - test_$y)
+y_hatlm = predict(model_lm, newdata=test)
+rmse.lm = rmse(y_hatlm - test$y)
 
 # fit nn
 # 2 hidden layers with configuration: 13:5:3:1. The input layer has 13 inputs,
@@ -165,18 +173,59 @@ y_hat.svm = predict(model_svm, test[2:126])
 #y_hat.svm_ = y_hat.svm*(max(data2$y)-min(data2$y))+min(data2$y)
 rmse.svm = rmse(y_hat.svm - test[,1])
 rmse.svm
+# Calculate rmse for SVM using training data
+y_hat.svm_train = predict(model_svm, train[2:126])
+rmse.svm_train = rmse(y_hat.svm_train - train[,1])
+rmse.svm_train
+
 
 # Fit random forrest
-model_rf = randomForest(x=train[,-1], y=train[,1], ntree=100)
+model_rf = randomForest(y~., data=train, ntree=25)
+  #randomForest(x=train[,-1], y=train[,1], scaled=T)
+plot(model_rf)
 y_hat.rf = predict(model_rf, newdata=test[,-1])
 rmse.rf = rmse(y_hat.rf - test[,1])
 rmse.rf
+test.err = double(125)
+for(i in 2:126){
+  model_rf = randomForest(y~., data=train, mtry=i)
+  #randomForest(x=train[,-1], y=train[,1], scaled=T)
+  y_hat.rf = predict(model_rf, newdata=test[,-1])
+  test.err[i] = rmse(y_hat.rf - test[,1])
+}
+test.err
+plot(test.err)
+# Calculate rmse for random forest using training data
+y_hat.rf_train = predict(model_rf, train[,2:126])
+rmse.rf_train = rmse(y_hat.rf_train - train[,1])
+rmse.rf_train
 
 # Find importance of parameters with random forrest model, higher -> more important
 round(importance(model_rf), 2)
 
+# Fit regression tree
+
 # Fit Adaboost model
-model_ada = blackboost(formula=y~., data=train, control=boost_control(mstop=100))
+model_ada = blackboost(formula=y~., data=train, control=boost_control(mstop=100), family=GaussReg())
 y_hat.ada = predict(model_ada, newdata=test)
 rmse.ada = rmse(y_hat.ada - test[,1])
 rmse.ada
+
+# Fit gbm (gradiaent boosting model)
+library(gbm)
+model_gbm = gbm(y~., data=train)
+y_hat.gbm = predict(model_gbm, newdata=test, n.trees=100)
+rmse.gbm = rmse(y_hat.gbm - test[,1])
+rmse.gbm # Seems to be best model so far
+
+# Regression tree with library rpart
+library(e1071)
+library(caret)
+library(rpart)
+numFolds <- trainControl(method = "cv", number = 10) # Produce CV train sets (k = 10)
+cpGrid <- expand.grid(.cp = seq(0.01, 0.5, 0.01)) # To try many different cp values
+model_rpart1 <- train(y~., data = train, method = "rpart", trControl = numFolds, tuneGrid = cpGrid) # lowest rmse found with cp=0.1
+model_rpart2 = rpart(y~., data = train, method = "anova", cp = 0.1) 
+y_hat.rpart <- predict(model_rpart2, newdata = test)
+rmse.rpart = rmse(y_hat.rpart - test[,1])
+rmse.rpart # Still higher than randomForest package used above ...
