@@ -161,11 +161,16 @@ f = as.formula(paste("y ~", paste(nms[!nms %in% "y"], collapse = " + ")))
 model_nn = neuralnet(f, data=train_, hidden=c(5,3), linear.output=TRUE)
 
 y_hat.nn = compute(model_nn, test_[,2:126])
+y_hat.nn_train = compute(model_nn, train_[,2:126])
 
 y_hat.nn_ = y_hat.nn$net.result*(max(data2$y)-min(data2$y))+min(data2$y) # This will scale the predictions back to original
+y_hat.nn_train_ = y_hat.nn_train$net.result*(max(data2$y)-min(data2$y))+min(data2$y)
 test.r = (test_$y)*(max(data2$y)-min(data2$y))+min(data2$y) # Scale test data back to original
+train.r = (train_$y)*(max(data2$y)-min(data2$y))+min(data2$y)
 rmse.nn = rmse(y_hat.nn_ - test.r)
 rmse.nn
+rmse.nn_train = rmse(y_hat.nn_train_ - train.r)
+rmse.nn_train
 
 # fit SVM
 model_svm = ksvm(x=as.matrix(train[,2:126]), y=as.matrix(train[,1]), scaled=T, C=5) # Cost constraint of 5
@@ -180,9 +185,9 @@ rmse.svm_train
 
 
 # Fit random forrest
-model_rf = randomForest(y~., data=train, ntree=25)
+model_rf = randomForest(y~., data=train, ntree=100)
   #randomForest(x=train[,-1], y=train[,1], scaled=T)
-plot(model_rf)
+plot(model_rf, main="Random Forest")
 y_hat.rf = predict(model_rf, newdata=test[,-1])
 rmse.rf = rmse(y_hat.rf - test[,1])
 rmse.rf
@@ -208,15 +213,38 @@ round(importance(model_rf), 2)
 # Fit Adaboost model
 model_ada = blackboost(formula=y~., data=train, control=boost_control(mstop=100), family=GaussReg())
 y_hat.ada = predict(model_ada, newdata=test)
+y_hat.ada_train = predict(model_ada, newdata=train)
 rmse.ada = rmse(y_hat.ada - test[,1])
+rmse.ada_train = rmse(y_hat.ada_train - train[,1])
 rmse.ada
+rmse.ada_train
 
 # Fit gbm (gradiaent boosting model)
 library(gbm)
-model_gbm = gbm(y~., data=train)
+model_gbm = gbm(y~., data=train, cv.fold=10, distribution="gaussian")
+
 y_hat.gbm = predict(model_gbm, newdata=test, n.trees=100)
+y_hat.gbm_train = predict(model_gbm, newdata=train, n.trees=100)
 rmse.gbm = rmse(y_hat.gbm - test[,1])
+rmse.gbm_train = rmse(y_hat.gbm_train - train[,1])
 rmse.gbm # Seems to be best model so far
+rmse.gbm_train
+
+model_gbm2 = gbm(y~ x_34 +x_14+ x_24+ x_84+ x_46+ x_90+ x_43+ x_12+ x_10+ x_69,
+                 data=train, cv.fold=10)
+yhat.gbm2 = predict(model_gbm2, newdata=test, n.trees=100)
+rmse.gbm2 = rmse(yhat.gbm2 - test[,1])
+rmse.gbm2
+
+
+# plot residuals
+plot(train$y, train$y - model_gbm$fit, xlab="y", ylab="y - y_hat", 
+     main="Residual plot of GBM model using training data", cex.main=0.8)
+hist(train$y - model_gbm$fit, breaks=50, xlab="y - y_hat", ylab="n",  
+     main="Residual histogram plot of GBM model using training data", cex.main=0.8)
+head(summary(model_gbm, 10))
+barplot(rel_infl, names.arg = c("x_34", "x_14", "x_24", "x_84", "x_46", "x_90"," x_43", "x_12","x_10", "x_69"),
+        xlab="Variable name", ylab="Relative influence", main="Top 10 variables with highest relaive influence")
 
 # Regression tree with library rpart
 library(e1071)
@@ -229,3 +257,16 @@ model_rpart2 = rpart(y~., data = train, method = "anova", cp = 0.1)
 y_hat.rpart <- predict(model_rpart2, newdata = test)
 rmse.rpart = rmse(y_hat.rpart - test[,1])
 rmse.rpart # Still higher than randomForest package used above ...
+
+# Plot results of each model using test and train data.
+model_names = c("Lasso", "Elastic Net", "Neural Network", "SVM", "Random Forest", "Ada Boost", "Gradient Boost")
+results = structure(list(Lasso=c(31.75816,20), Elastic_Net=c(30.6930,19.45), Neural_Network=c(rmse.nn,rmse.nn_train), 
+                         SVM=c(rmse.svm,rmse.svm_train),  Random_Forst=c(rmse.rf,rmse.rf_train),
+                         Ada_Boost=c(rmse.ada,rmse.ada_train), Gradient_Boost=c(rmse.gbm,rmse.gbm_train)), 
+                    .Names=model_names, class="data.frame", row.names=c("Test", "Train"))
+attach(results)
+print(results)
+barplot(as.matrix(results), main="Model Results", ylab="RMSE", col=c("blue", "red"), beside=TRUE, cex.main=1.5)
+legend("topright", c("Test", "Train"), cex=1.3, bty="n", fill=c("blue", "red"))
+
+
