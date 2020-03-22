@@ -172,77 +172,136 @@ rmse.nn
 rmse.nn_train = rmse(y_hat.nn_train_ - train.r)
 rmse.nn_train
 
-# fit SVM
-model_svm = ksvm(x=as.matrix(train[,2:126]), y=as.matrix(train[,1]), scaled=T, C=5) # Cost constraint of 5
-y_hat.svm = predict(model_svm, test[2:126])
-#y_hat.svm_ = y_hat.svm*(max(data2$y)-min(data2$y))+min(data2$y)
-rmse.svm = rmse(y_hat.svm - test[,1])
-rmse.svm
-# Calculate rmse for SVM using training data
-y_hat.svm_train = predict(model_svm, train[2:126])
-rmse.svm_train = rmse(y_hat.svm_train - train[,1])
-rmse.svm_train
 
+# fit SVM
+K = 10 # number of folds
+#Randomly shuffle the data
+data2_ = data2[sample(nrow(data2)),]
+#Create 10 equally size folds
+folds = cut(seq(1,nrow(data2_)),breaks=10,labels=FALSE)
+#Perform 10 fold cross validation
+rmse.svm = c()
+rmse.svm_train = c()
+for(i in 1:K){
+  #Segement your data by fold using the which() function 
+  testIndexes = which(folds==i,arr.ind=TRUE)
+  testData = data2_[testIndexes, ]
+  trainData = data2_[-testIndexes, ]
+  model_svm = ksvm(x=as.matrix(trainData[,2:126]), y=as.matrix(trainData[,1]), C=5) # Cost constraint of 5
+  y_hat.svm = predict(model_svm, testData[2:126])
+  #y_hat.svm_ = y_hat.svm*(max(data2$y)-min(data2$y))+min(data2$y)
+  rmse.svm[i] = rmse(y_hat.svm - testData[,1])
+  # Calculate rmse for SVM using training data
+  y_hat.svm_train = predict(model_svm, trainData[2:126])
+  rmse.svm_train[i] = rmse(y_hat.svm_train - trainData[,1])
+}
+rmse.svm = mean(rmse.svm)
+rmse.svm_train = mean(rmse.svm_train)
 
 # Fit random forrest
-model_rf = randomForest(y~., data=train, ntree=100)
-  #randomForest(x=train[,-1], y=train[,1], scaled=T)
-plot(model_rf, main="Random Forest")
-y_hat.rf = predict(model_rf, newdata=test[,-1])
-rmse.rf = rmse(y_hat.rf - test[,1])
-rmse.rf
-test.err = double(125)
-for(i in 2:126){
-  model_rf = randomForest(y~., data=train, mtry=i)
-  #randomForest(x=train[,-1], y=train[,1], scaled=T)
-  y_hat.rf = predict(model_rf, newdata=test[,-1])
-  test.err[i] = rmse(y_hat.rf - test[,1])
+K = 10 # number of folds
+#Randomly shuffle the data
+data2_ = data2[sample(nrow(data2)),]
+#Create 10 equally size folds
+folds = cut(seq(1,nrow(data2_)),breaks=10,labels=FALSE)
+#Perform 10 fold cross validation
+rmse.rf = c()
+rmse.rf_train = c()
+for(i in 1:K){
+  #Segement your data by fold using the which() function 
+  testIndexes = which(folds==i,arr.ind=TRUE)
+  testData = data2_[testIndexes, ]
+  trainData = data2_[-testIndexes, ]
+  
+  model_rf = randomForest(y~., data=trainData, ntree=100)
+    #randomForest(x=train[,-1], y=train[,1], scaled=T)
+  
+  y_hat.rf = predict(model_rf, newdata=testData[,-1])
+  rmse.rf[i] = rmse(y_hat.rf - testData[,1])
+  
+  # Calculate rmse for random forest using training data
+  y_hat.rf_train = predict(model_rf, trainData[,2:126])
+  rmse.rf_train[i] = rmse(y_hat.rf_train - trainData[,1])
+  
 }
-test.err
-plot(test.err)
-# Calculate rmse for random forest using training data
-y_hat.rf_train = predict(model_rf, train[,2:126])
-rmse.rf_train = rmse(y_hat.rf_train - train[,1])
-rmse.rf_train
-
+rmse.rf = mean(rmse.rf)
+rmse.rf_train = mean(rmse.rf_train)
+plot(model_rf, main="Random Forest")
 # Find importance of parameters with random forrest model, higher -> more important
 round(importance(model_rf), 2)
 
 # Fit regression tree
 
 # Fit Adaboost model
-model_ada = blackboost(formula=y~., data=train, control=boost_control(mstop=100), family=GaussReg())
-y_hat.ada = predict(model_ada, newdata=test)
-y_hat.ada_train = predict(model_ada, newdata=train)
-rmse.ada = rmse(y_hat.ada - test[,1])
-rmse.ada_train = rmse(y_hat.ada_train - train[,1])
-rmse.ada
-rmse.ada_train
+
+# Perform K-fold CV
+K = 10 # number of folds
+#Randomly shuffle the data
+data2_ = data2[sample(nrow(data2)),]
+#Create 10 equally size folds
+folds = cut(seq(1,nrow(data2_)),breaks=5=10,labels=FALSE)
+#Perform 10 fold cross validation
+rmse.ada = c()
+rmse.ada_train = c()
+for(i in 1:K){
+  #Segement your data by fold using the which() function 
+  testIndexes = which(folds==i,arr.ind=TRUE)
+  testData = data2_[testIndexes, ]
+  trainData = data2_[-testIndexes, ]
+  
+  model_ada = blackboost(formula=y~., data=trainData, control=boost_control(mstop=100), family=GaussReg())
+  y_hat.ada = predict(model_ada, newdata=testData)
+  y_hat.ada_train = predict(model_ada, newdata=trainData)
+  rmse.ada = rmse(y_hat.ada - testData[,1])
+  rmse.ada_train = rmse(y_hat.ada_train - trainData[,1])
+}
+rmse.ada = mean(rmse.ada)
+rmse.ada_train = mean(rmse.ada_train)
 
 # Fit gbm (gradiaent boosting model)
 library(gbm)
-model_gbm = gbm(y~., data=train, cv.fold=10, distribution="gaussian")
 
-y_hat.gbm = predict(model_gbm, newdata=test, n.trees=100)
-y_hat.gbm_train = predict(model_gbm, newdata=train, n.trees=100)
-rmse.gbm = rmse(y_hat.gbm - test[,1])
-rmse.gbm_train = rmse(y_hat.gbm_train - train[,1])
-rmse.gbm # Seems to be best model so far
-rmse.gbm_train
+# Perform K-fold CV
+K = 10 # number of folds
+#Randomly shuffle the data
+data2_ = data2[sample(nrow(data2)),]
+#Create 10 equally size folds
+folds = cut(seq(1,nrow(data2_)),breaks=10,labels=FALSE)
+#Perform 10 fold cross validation
+rmse.gbm = c()
+rmse.gbm_train = c()
+for(i in 1:K){
+  #Segement your data by fold using the which() function 
+  testIndexes = which(folds==i,arr.ind=TRUE)
+  testData = data2_[testIndexes, ]
+  trainData = data2_[-testIndexes, ]
 
-model_gbm2 = gbm(y~ x_34 +x_14+ x_24+ x_84+ x_46+ x_90+ x_43+ x_12+ x_10+ x_69,
-                 data=train, cv.fold=10)
-yhat.gbm2 = predict(model_gbm2, newdata=test, n.trees=100)
-rmse.gbm2 = rmse(yhat.gbm2 - test[,1])
-rmse.gbm2
+  model_gbm = gbm(y~., data=trainData, distribution="gaussian")
 
+  y_hat.gbm = predict(model_gbm, newdata=testData, n.trees=100)
+  y_hat.gbm_train = predict(model_gbm, newdata=trainData, n.trees=100)
+  rmse.gbm[i] = rmse(y_hat.gbm - testData[,1])
+  rmse.gbm_train[i] = rmse(y_hat.gbm_train - trainData[,1])
+
+# model_gbm2 = gbm(y~ x_34 +x_14+ x_24+ x_84+ x_46+ x_90+ x_43+ x_12+ x_10+ x_69,
+#                  data=train, cv.fold=10)
+# yhat.gbm2 = predict(model_gbm2, newdata=test, n.trees=100)
+# rmse.gbm2 = rmse(yhat.gbm2 - test[,1])
+# rmse.gbm2
+}
+rmse.gbm
+rmse.gbm = mean(rmse.gbm)
+rmse.gbm_train = mean(rmse.gbm_train)
 
 # plot residuals
-plot(train$y, train$y - model_gbm$fit, xlab="y", ylab="y - y_hat", 
+plot(trainData$y, trainData$y - model_gbm$fit, xlab="y", ylab="y - y_hat", 
      main="Residual plot of GBM model using training data", cex.main=0.8)
-hist(train$y - model_gbm$fit, breaks=50, xlab="y - y_hat", ylab="n",  
-     main="Residual histogram plot of GBM model using training data", cex.main=0.8)
+hist(trainData$y - model_gbm$fit, breaks=20, xlab="y - y_hat", ylab="Probability",  
+     main="Residual histogram plot of GBM model", cex.main=0.8, prob=TRUE)
+lines(density(trainData$y - model_gbm$fit), lwd = 2, col = "red")
+plot(trainData$y - model_gbm$fit, ylab="y - y_hat", xlab=" ", main="Residual scatter plot")
 head(summary(model_gbm, 10))
+rel_infl = head(model_gbm, 10)
 barplot(rel_infl, names.arg = c("x_34", "x_14", "x_24", "x_84", "x_46", "x_90"," x_43", "x_12","x_10", "x_69"),
         xlab="Variable name", ylab="Relative influence", main="Top 10 variables with highest relaive influence")
 
@@ -268,5 +327,3 @@ attach(results)
 print(results)
 barplot(as.matrix(results), main="Model Results", ylab="RMSE", col=c("blue", "red"), beside=TRUE, cex.main=1.5)
 legend("topright", c("Test", "Train"), cex=1.3, bty="n", fill=c("blue", "red"))
-
-
